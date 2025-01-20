@@ -529,13 +529,13 @@ if __name__ == "__main__":
 
     # Read in sample data
     labels = os.listdir("fashion_mnist_images/train")
+
     X = []
     y = []
-
     # Loop through label folders
     for label in labels:
 
-        print(f"Collecting files with label: {label}")
+        print(f"Collecting files with label: {label} for training data")
         # Loop through each file and append image using cv2
         for file in os.listdir(os.path.join("fashion_mnist_images", "train", label)):
 
@@ -544,13 +544,27 @@ if __name__ == "__main__":
             X.append(image)
             y.append(label)
 
+    X_test = []
+    y_test = []
+    # Loop through label folders
+    for label in labels:
+
+        print(f"Collecting files with label: {label} for testing data")
+        # Loop through each file and append image using cv2
+        for file in os.listdir(os.path.join("fashion_mnist_images", "test", label)):
+
+            image = cv2.imread(os.path.join("fashion_mnist_images", "test", label, file), cv2.IMREAD_UNCHANGED)
+
+            X_test.append(image)
+            y_test.append(label)
+
 
     # Initialize Model
     model = Model()
-    model.add(Layer_Dense(2, 512, weight_regularizer_l2=5e-4, bias_regularizer_l2=5e-4))
+    model.add(Layer_Dense(28, 512, weight_regularizer_l2=5e-4, bias_regularizer_l2=5e-4))
     model.add(Activation_ReLU())
     model.add(Layer_Dropout(rate=0.1))
-    model.add(Layer_Dense(512, 3))
+    model.add(Layer_Dense(512, 10))
     model.add(Activation_Softmax())
 
     # Set
