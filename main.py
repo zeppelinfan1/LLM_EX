@@ -535,10 +535,11 @@ if __name__ == "__main__":
     # Loop through label folders
     for label in labels:
 
+        print(f"Collecting files with label: {label}")
         # Loop through each file and append image using cv2
         for file in os.listdir(os.path.join("fashion_mnist_images", "train", label)):
 
-            image = cv2.imread(os.path.join("fashion_mnist_images", label, file), cv2.IMREAD_UNCHANGED)
+            image = cv2.imread(os.path.join("fashion_mnist_images", "train", label, file), cv2.IMREAD_UNCHANGED)
 
             X.append(image)
             y.append(label)
