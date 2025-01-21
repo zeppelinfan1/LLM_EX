@@ -232,12 +232,31 @@ class Loss:
         sample_losses = self.forward(output, y)
         # Calculate mean loss
         data_loss = np.mean(sample_losses)
+
+        self.accumulated_sum += np.sum(sample_losses)
+        self.accumulated_count += len(sample_losses)
+
         # If no regularization loss required, then return only data loss
         if not include_regularization:
 
             return data_loss
 
         return data_loss, self.regularization_loss()
+
+    def calculate_accumulated(self, *, include_regularization=False):
+
+        data_loss = self.accumulated_sum / self.accumulated_count
+
+        if not include_regularization:
+
+            return data_loss
+
+        return data_loss, self.regularization_loss()
+
+    def new_pass(self):
+
+        self.accumulated_sum = 0
+        self.accumulated_count = 0
 
 class Loss_CategoricalCrossEntropy(Loss):
 
@@ -300,13 +319,31 @@ class Accuracy:
         # Calculate
         accuracy = np.mean(comparisons)
 
+        self.accumulated_sum += np.sum(comparisons)
+        self.accumulated_count += len(comparisons)
+
         return accuracy
+
+    def calculate_accumulated(self):
+
+        accuracy = self.accumulated_sum / self.accumulated_count
+
+        return accuracy
+
+    def new_pass(self):
+
+        self.accumulated_sum = 0
+        self.accumulated_count = 0
 
 class Accuracy_Categorical(Accuracy):
 
     def __init__(self, *, binary=False):
 
         self.binary = binary
+
+    def init(self, y):
+
+        pass
 
     def compare(self, predictions, y):
 
@@ -383,6 +420,7 @@ class Model:
 
         # Blank list to contain layers added to NN
         self.layers = []
+        self.softmax_classifier_output = None
 
     def add(self, layer):
 
@@ -428,56 +466,109 @@ class Model:
         if isinstance(self.layers[-1], Activation_Softmax) and isinstance(self.loss, Loss_CategoricalCrossEntropy):
             self.softmax_classifier_output = Activation_Softmax_Loss_CategoricalCrossEntropy()
 
-    def train(self, X, y, *, epochs=1, print_every=1, validation_data=None):
+    def train(self, X, y, *, epochs=1, batch_size=None, print_every=1, validation_data=None):
+
+        self.accuracy.init(y)
+
+        train_steps = 1
+
+        if validation_data is not None:
+            validation_steps = 1
+            X_val, y_val = validation_data
+
+        if batch_size is not None:
+            train_steps = len(X) // batch_size
+            if train_steps * batch_size < len(X):
+                train_steps += 1
+            if validation_data is not None:
+                validation_steps = len(X_val) // batch_size
+                if validation_steps * batch_size < len(X_val):
+                    validation_steps += 1
 
         for epoch in range(1, epochs + 1):
 
-            # Forward pass
-            output = self.forward(X, training=True)
+            print(f"Epoch: {epoch}")
 
-            # Calculate loss
-            data_loss, regularization_loss = self.loss.calculate(output, y, include_regularization=True)
-            loss = data_loss + regularization_loss
-            # Get predictions and calculate accuracy
-            predictions = self.output_layer_activation.predictions(output)
-            accuracy = self.accuracy.calculate(predictions, y)
+            self.loss.new_pass()
+            self.accuracy.new_pass()
 
-            # Backward pass
-            self.backward(output, y)
+            for step in range(train_steps):
 
-            # Optimize
-            self.optimizer.pre_update_params()
-            for layer in self.trainable_layers:
+                if batch_size is None:
+                    batch_X = X
+                    batch_y = y
+                else:
+                    batch_X = X[step*batch_size:(step+1)*batch_size]
+                    batch_y = y[step*batch_size:(step+1)*batch_size]
 
-                self.optimizer.update_params(layer)
+                # Forward pass
+                output = self.forward(batch_X, training=True)
 
-            self.optimizer.post_update_params()
+                # Calculate loss
+                data_loss, regularization_loss = self.loss.calculate(output, batch_y, include_regularization=True)
+                loss = data_loss + regularization_loss
 
-            # Summary print
-            if not epoch % print_every:
-                print(f"Epoch: {epoch}, " +
-                      f"Acc: {accuracy: .3f}, " +
-                      f"Loss: {loss: .3f}, " +
-                      f"Data Loss: {data_loss: .3f}, " +
-                      f"Reg Loss: {regularization_loss: .3f}, " +
-                      f"Learning Rate: {self.optimizer.current_learning_rate: .3f}, ")
+                # Get predictions and calculate accuracy
+                predictions = self.output_layer_activation.predictions(output)
+                accuracy = self.accuracy.calculate(predictions, batch_y)
+
+                # Backward pass
+                self.backward(output, batch_y)
+
+                # Optimize
+                self.optimizer.pre_update_params()
+                for layer in self.trainable_layers:
+
+                    self.optimizer.update_params(layer)
+
+                self.optimizer.post_update_params()
+
+                # Summary print
+                if not epoch % print_every:
+                    print(f"Step: {step}, " +
+                          f"Acc: {accuracy: .3f}, " +
+                          f"Loss: {loss: .3f}, " +
+                          f"Data Loss: {data_loss: .3f}, " +
+                          f"Reg Loss: {regularization_loss: .3f}, " +
+                          f"Learning Rate: {self.optimizer.current_learning_rate: .3f}, ")
+
+            epoch_data_loss, epoch_regularization_loss = self.loss.calculate_accumulated(include_regularization=True)
+            epoch_loss = epoch_data_loss + epoch_regularization_loss
+            epoch_accuracy = self.accuracy.calculate_accumulated()
+            print(f"Training, " +
+                  f"Acc: {epoch_accuracy: .3f}, " +
+                  f"Loss: {epoch_loss: .3f}, " +
+                  f"Data Loss: {epoch_data_loss: .3f}, " +
+                  f"Reg Loss: {epoch_regularization_loss: .3f}, " +
+                  f"Learning Rate: {self.optimizer.current_learning_rate: .3f}, ")
 
         # Final validation on testing data
         if validation_data is not None:
-            X_val, y_val = validation_data
 
-            # Forward pass
-            output = self.forward(X_val, training=False)
-            # Loss, Accuracy and Preds
-            loss = self.loss.calculate(output, y_val)
-            predictions = self.output_layer_activation.predictions(output)
-            accuracy = self.accuracy.calculate(predictions, y_val)
+            self.loss.new_pass()
+            self.accuracy.new_pass()
 
-            # Final print
-            print("-" * 50)
-            print(f"Validation, " +
-                  f"Acc: {accuracy: .5f}, " +
-                  f"Loss: {loss: .5f}")
+            for step in range(validation_steps):
+
+                if batch_size is None:
+                    batch_X = X_val
+                    batch_y = y_val
+                else:
+                    batch_X = X_val[step * batch_size:(step + 1) * batch_size]
+                    batch_y = y_val[step * batch_size:(step + 1) * batch_size]
+
+                # Forward pass
+                output = self.forward(batch_X, training=False)
+                # Loss, Accuracy and Preds
+                loss = self.loss.calculate(output, batch_y)
+                predictions = self.output_layer_activation.predictions(output)
+                accuracy = self.accuracy.calculate(predictions, batch_y)
+
+                # Final print
+                print("-" * 50)
+                print(f"Validation, " +
+                      f"Acc: {accuracy: .5f}, " +
+                      f"Loss: {loss: .5f}")
 
     def forward(self, X, training):
 
@@ -544,6 +635,9 @@ if __name__ == "__main__":
             X.append(image)
             y.append(label)
 
+    X = np.array(X)
+    y = np.array(y).astype("uint8")
+
     X_test = []
     y_test = []
     # Loop through label folders
@@ -561,10 +655,12 @@ if __name__ == "__main__":
 
     # Initialize Model
     model = Model()
-    model.add(Layer_Dense(28, 512, weight_regularizer_l2=5e-4, bias_regularizer_l2=5e-4))
+    model.add(Layer_Dense(X.shape[1], 128, weight_regularizer_l2=5e-4, bias_regularizer_l2=5e-4))
+    model.add(Activation_ReLU())
+    model.add(Layer_Dense(128, 128))
     model.add(Activation_ReLU())
     model.add(Layer_Dropout(rate=0.1))
-    model.add(Layer_Dense(512, 10))
+    model.add(Layer_Dense(128, 10))
     model.add(Activation_Softmax())
 
     # Set
@@ -574,4 +670,4 @@ if __name__ == "__main__":
 
     # Finalize and train
     model.finalize()
-    model.train(X, y, validation_data=(X_test, y_test), epochs=10000, print_every=100)
+    model.train(X, y, validation_data=(X_test, y_test), epochs=10, batch_size=128, print_every=100)
