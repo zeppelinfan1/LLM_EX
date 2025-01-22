@@ -2,7 +2,7 @@
 NUMPY NETWORK
 """
 
-import numpy as np
+import numpy as np, pandas as pd
 import matplotlib.pyplot as plt
 import os, cv2, urllib, urllib.request, zipfile
 
@@ -966,7 +966,62 @@ def create_data_mnist(path):
 #                        folder="fashion_mnist_images")
 
 # Create dataset
-X, y, X_test, y_test = create_data_mnist(os.path.join(os.getcwd(), "fashion_mnist_images"))
+# X, y, X_test, y_test = create_data_mnist(os.path.join(os.getcwd(), "fashion_mnist_images"))
+
+
+"""PEPARING DF DATA
+"""
+
+# Text from Wine Kaggle DF
+df = pd.read_csv(r"C:\Users\DanielC\Desktop\winemag-data-130k-v2.csv", index_col=0)
+# Retain only relevent columns
+df = df[["description", "points"]]
+df["description"] = df["description"].str.lower()
+
+
+"""CREATING EMBEDDING
+"""
+
+# Step 1: Tokenize
+full_tokens = []
+df["description"].apply(lambda x: [full_tokens.append(word) for word in x.split()])
+full_tokens.append("[EOS]")
+full_tokens.append("[PAD]")
+
+# Step 2: Build a vocabulary (The Word is the Key, the Index is the Value)
+vocab = {word: i for i, word in enumerate(set(full_tokens))}
+
+
+# Step 3: Create an embedding matrix
+embedding_dim = 8
+embedding_matrix = np.random.randn(len(vocab), embedding_dim) # 2 extra: 1 for EOS, 1 for PAD
+
+# for word, index in vocab.items():
+#     print(f"Word: {word}, Index: {index}, Embedding: {embedding_matrix[index]}")
+
+
+"""APPLYING EMBEDDING TO DF
+"""
+
+# Step 4: Convert tokens to embedding vectors
+def apply_embedding(text, seq_length=10):
+
+    tokens = text.split() + ["[EOS]"]
+    tokens = tokens[:seq_length]
+    tokens += ["[PAD]"] * (seq_length - len(tokens))
+    embeddings = [embedding_matrix[vocab[token]].tolist() for token in tokens]
+
+    return embeddings
+
+df["embedding"] = df["description"].apply(apply_embedding)
+
+df_train = df[:int(len(df)*0.8)]
+df_test = df[int(len(df)*0.8):]
+
+X = np.array(df_train["embedding"].tolist())
+y = np.array(df_train["points"].to_list())
+X_test = np.array(df_test["embedding"].tolist())
+y_test = np.array(df_test["points"].to_list())
 
 # Shuffle the training dataset
 keys = np.array(range(X.shape[0]))
@@ -987,7 +1042,7 @@ model.add(Activation_ReLU())
 model.add(Layer_Dense(512, 512))
 model.add(Activation_ReLU())
 model.add(Layer_Dropout(rate=0.1))
-model.add(Layer_Dense(512, 10))
+model.add(Layer_Dense(512, len(vocab.keys())))
 model.add(Activation_Softmax())
 
 # Set loss, optimizer and accuracy objects
