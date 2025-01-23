@@ -129,6 +129,30 @@ class Activation_ReLU:
 
         return outputs
 
+class Activation_BoundLinear:
+
+    # Forward pass
+    def forward(self, inputs, training):
+
+        # Remember input values
+        self.inputs = inputs
+        # Calculate output values from inputs
+        self.output = np.clip(inputs, 0, 100) # Clip values between 0 and 100
+
+    # Backward pass
+    def backward(self, dvalues):
+
+        self.dvalues = dvalues.copy()
+
+        # Zero gradient where input values were negative
+        self.dvalues[self.inputs <= 0] = 0 # Stop gradient for values <= 0
+        self.dvalues[self.inputs >= 100] = 0 # Stop gradient for values >= 100
+
+    # Calculate predictions for outputs
+    def predictions(self, outputs):
+
+        return outputs
+
 
 # Softmax activation
 class Activation_Softmax:
@@ -532,8 +556,10 @@ class Loss_CategoricalCrossentropy(Loss):
 
         # Probabilities for target values -
         # only if categorical labels
-        if len(y_true.shape) == 1:
-            y_pred_clipped = y_pred_clipped[range(samples), y_true]
+        """NOTE: THIS IS THROWING ERROR WITH THE LINEAR FINAL ACTIVATION - NEED WORKAROUND
+        """
+        # if len(y_true.shape) == 1:
+        #     y_pred_clipped = y_pred_clipped[range(samples), y_true]
 
         # Losses
         negative_log_likelihoods = -np.log(y_pred_clipped)
@@ -1042,8 +1068,8 @@ model.add(Activation_ReLU())
 model.add(Layer_Dense(512, 512))
 model.add(Activation_ReLU())
 model.add(Layer_Dropout(rate=0.1))
-model.add(Layer_Dense(512, len(vocab.keys())))
-model.add(Activation_Softmax())
+model.add(Layer_Dense(512, 1))
+model.add(Activation_BoundLinear())
 
 # Set loss, optimizer and accuracy objects
 model.set(
