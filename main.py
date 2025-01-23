@@ -59,7 +59,7 @@ class Layer_Dense:
             self.dbiases += 2 * self.bias_regularizer_l2 * self.biases
 
         # Gradient on values
-        self.dvalues = np.dot(dvalues, self.weights.T)
+        self.dinputs = np.dot(dvalues, self.weights.T)
 
 
 # Dropout
@@ -91,7 +91,7 @@ class Layer_Dropout:
     def backward(self, dvalues):
 
         # Gradient on values
-        self.dvalues = dvalues * self.binary_mask
+        self.dinputs = dvalues * self.binary_mask
 
 
 # Input "layer"
@@ -119,40 +119,15 @@ class Activation_ReLU:
 
         # Since we need to modify original variable,
         # let's make a copy of values first
-        self.dvalues = dvalues.copy()
+        self.dinputs = dvalues.copy()
 
         # Zero gradient where input values were negative
-        self.dvalues[self.inputs <= 0] = 0
+        self.dinputs[self.inputs <= 0] = 0
 
     # Calculate predictions for outputs
     def predictions(self, outputs):
 
         return outputs
-
-class Activation_BoundLinear:
-
-    # Forward pass
-    def forward(self, inputs, training):
-
-        # Remember input values
-        self.inputs = inputs
-        # Calculate output values from inputs
-        self.output = np.clip(inputs, 0, 100) # Clip values between 0 and 100
-
-    # Backward pass
-    def backward(self, dvalues):
-
-        self.dvalues = dvalues.copy()
-
-        # Zero gradient where input values were negative
-        self.dvalues[self.inputs <= 0] = 0 # Stop gradient for values <= 0
-        self.dvalues[self.inputs >= 100] = 0 # Stop gradient for values >= 100
-
-    # Calculate predictions for outputs
-    def predictions(self, outputs):
-
-        return outputs
-
 
 # Softmax activation
 class Activation_Softmax:
@@ -175,7 +150,7 @@ class Activation_Softmax:
     # Backward pass
     def backward(self, dvalues):
 
-        self.dvalues = dvalues.copy()
+        self.dinputs = dvalues.copy()
 
     # Calculate predictions for outputs
     def predictions(self, outputs):
@@ -197,7 +172,7 @@ class Activation_Sigmoid:
     def backward(self, dvalues):
 
         # Derivative - calculates from output of sigmoid function
-        self.dvalues = dvalues * (1 - self.output) * self.output
+        self.dinputs = dvalues * (1 - self.output) * self.output
 
     # Calculate predictions for outputs
     def predictions(self, outputs):
@@ -219,7 +194,7 @@ class Activation_Linear:
     def backward(self, dvalues):
 
         # 1 is derivative, 1 * dvalued = dvalues - chain rule
-        self.dvalues = dvalues.copy()
+        self.dinputs = dvalues.copy()
 
     # Calculate predictions for outputs
     def predictions(self, outputs):
@@ -593,9 +568,9 @@ class Loss_CategoricalCrossentropy(Loss):
 
         samples = dvalues.shape[0]
 
-        self.dvalues = dvalues.copy()  # Copy so we can safely modify
-        self.dvalues[range(samples), y_true] -= 1
-        self.dvalues = self.dvalues / samples
+        self.dinputs = dvalues.copy()  # Copy so we can safely modify
+        self.dinputs[range(samples), y_true] -= 1
+        self.dinputs = self.dinputs / samples
 
 
 # Binary cross-entropy loss
@@ -622,7 +597,7 @@ class Loss_BinaryCrossentropy(Loss):
         clipped_dvalues = np.clip(dvalues, 1e-7, 1 - 1e-7)
 
         # Gradient on values
-        self.dvalues = -(y_true / clipped_dvalues - (1 - y_true) / (1 - clipped_dvalues))
+        self.dinputs = -(y_true / clipped_dvalues - (1 - y_true) / (1 - clipped_dvalues))
 
 
 # Mean Squared Error loss
@@ -640,9 +615,15 @@ class Loss_MeanSquaredError(Loss):  # L2 loss
     # Backward pass
     def backward(self, dvalues, y_true):
 
+        samples = len(dvalues)
+        outputs = len(dvalues[0])
+        """ DOT PRODUCT NOT WORKING HERE - DID THIS AS DEBUGGING
+        """
+        # Reshaping
+        y_true = y_true.reshape(-1, 1)
         # Gradient on values
-        self.dvalues = -(y_true - dvalues)
-
+        self.dinputs = -2 * (y_true - dvalues) / outputs
+        self.dinputs = self.dinputs / samples
 
 # Mean Absolute Error loss
 class Loss_MeanAbsoluteError(Loss):  # L1 loss
@@ -659,7 +640,7 @@ class Loss_MeanAbsoluteError(Loss):  # L1 loss
     def backward(self, dvalues, y_true):
 
         # Gradient on values
-        self.dvalues = -np.sign(y_true - dvalues)
+        self.dinputs = -np.sign(y_true - dvalues)
 
 
 # Common accurcy class
@@ -950,7 +931,7 @@ class Model:
         # Call backward method going through all the objects
         # in reversed order passind dvalues as a parameter
         for layer in reversed(self.layers):
-            layer.backward(layer.next.dvalues)
+            layer.backward(layer.next.dinputs)
 
 # Using requests to download dataset and unzip
 def download_mnist_dataset(url, file, folder):
@@ -1086,13 +1067,13 @@ model.add(Layer_Dense(512, 512))
 model.add(Activation_ReLU())
 model.add(Layer_Dropout(rate=0.1))
 model.add(Layer_Dense(512, 1))
-model.add(Activation_BoundLinear())
+model.add(Activation_Linear())
 
 # Set loss, optimizer and accuracy objects
 model.set(
     loss=Loss_MeanSquaredError(),
     optimizer=Optimizer_Adam(decay=1e-7),
-    accuracy=Accuracy_Categorical()
+    accuracy=Accuracy_Regression()
 )
 
 # Finalize the model
