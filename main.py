@@ -540,6 +540,23 @@ class Loss:
         self.accumulated_sum = 0
         self.accumulated_count = 0
 
+class Loss_MeanSquaredError(Loss):
+
+    def forward(self, y_pred, y_true):
+
+        sample_losses = np.mean((y_true - y_pred) ** 2, axis=-1)
+
+        return sample_losses
+
+    def backward(self, dvalues, y_true):
+
+        samples = len(dvalues)
+        outputs = len(dvalues[0])
+        # Gradient on values
+        self.dinputs = -2 * (y_true - dvalues) / outputs
+        # Normalize
+        self.dinputs = self.dinputs / samples
+
 
 # Cross-entropy loss
 class Loss_CategoricalCrossentropy(Loss):
@@ -1073,7 +1090,7 @@ model.add(Activation_BoundLinear())
 
 # Set loss, optimizer and accuracy objects
 model.set(
-    loss=Loss_CategoricalCrossentropy(),
+    loss=Loss_MeanSquaredError(),
     optimizer=Optimizer_Adam(decay=1e-7),
     accuracy=Accuracy_Categorical()
 )
